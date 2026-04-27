@@ -14,7 +14,6 @@ request. There are no exceptions.
 
 Branch protection is enforced on GitHub:
 - Direct push to `main` is blocked.
-- PRs require at least one approved review before merge.
 - Squash merge is the only permitted merge strategy.
 
 ---
