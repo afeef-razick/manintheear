@@ -1,0 +1,33 @@
+# Binary
+manintheear
+manintheear.exe
+
+# Build artifacts
+/dist/
+*.o
+*.a
+
+# Session data written at runtime
+/sessions/
+
+# Test artifacts
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Go tool cache
+/vendor/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
