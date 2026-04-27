@@ -5,17 +5,15 @@ import (
 	"os"
 )
 
-// Config holds all runtime configuration loaded from the environment.
 type Config struct {
 	STTProvider string
 	LLMProvider string
 	TTSProvider string
 	OpenAIKey   string
 	SessionsDir string
+	LLMCmd      string
 }
 
-// Load reads configuration from environment variables and returns an error
-// if any required value is absent.
 func Load() (*Config, error) {
 	cfg := &Config{
 		STTProvider: envOr("STT_PROVIDER", "whisper"),
@@ -23,6 +21,7 @@ func Load() (*Config, error) {
 		TTSProvider: envOr("TTS_PROVIDER", "say"),
 		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
 		SessionsDir: envOr("SESSIONS_DIR", "./sessions"),
+		LLMCmd:      envOr("AI_CLI_CMD", "claude -p"),
 	}
 
 	if cfg.STTProvider == "whisper" && cfg.OpenAIKey == "" {
