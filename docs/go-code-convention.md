@@ -155,7 +155,7 @@ var ErrSessionCorrupt = errors.New("session state is unreadable")
 
 | What | Rule | Example |
 |---|---|---|
-| Provider implementations | `<Adjective>Provider` | `WhisperProvider`, `ClaudeCLIProvider` |
+| Provider implementations | `<Adjective>Provider` | `WhisperProvider`, `CLIProvider` |
 | Factory functions | Named after the package | `stt.New(cfg)` |
 | Goroutine entry points | Named verb | `runLoop`, `runSTT`, `runTUI` |
 | Channels | Named for content | `transcriptCh`, `whisperCh`, `updateCh` |
@@ -172,7 +172,7 @@ Each `internal/` package owns exactly one concern:
 |---|---|
 | `audio` | Capture, ring buffer, WAV encoding |
 | `stt` | Transcription interface + Whisper implementation |
-| `llm` | Decision interface + Claude CLI implementation |
+| `llm` | Decision interface + AI CLI implementation |
 | `tts` | Speech interface + `say` implementation |
 | `loop` | AI loop, trigger rules, drift detection, whisper manager |
 | `tui` | Terminal rendering only — no business logic |

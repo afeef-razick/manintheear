@@ -7,15 +7,7 @@ All rules are authoritative.
 
 ## 1. Branch naming
 
-```
-feat/<short-name>       new capability
-fix/<short-name>        bug fix
-test/<short-name>       tests only
-docs/<short-name>       documentation only
-refactor/<short-name>   refactor with no behaviour change
-```
-
-Examples: `feat/script-parser`, `fix/ring-buffer-boundary`, `test/whisper-provider`
+See `docs/git-convention.md` section 2 for the full branch naming rules.
 
 ---
 
@@ -71,7 +63,7 @@ The squash commit message MUST follow `docs/git-convention.md`.
 
 - Summary: 2–4 bullets on what changed and why it changed.
 - Test plan: checkbox list of exactly what was exercised.
-- MUST NOT mention Claude, AI, or any assistant tooling.
+- MUST NOT mention any AI tool or assistant by name.
 - MUST NOT reference internal conversation context or session details.
 
 ---
@@ -81,4 +73,4 @@ The squash commit message MUST follow `docs/git-convention.md`.
 - Commented-out code left in place.
 - Unresolved `TODO` or `FIXME` in changed files.
 - Debug `fmt.Println` added during development.
-- Any mention of Claude, AI, or the tooling used to produce the change.
+- Any mention of AI tools or assistants by name.

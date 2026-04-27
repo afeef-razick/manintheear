@@ -1,6 +1,6 @@
 # Man-in-the-Ear Tool — Product Spec
 
-> Process directives for Claude live in `CLAUDE.md`. Read that first.
+> Agent process directives live in `CLAUDE.md`. Read that first.
 
 ## What the tool does
 
@@ -168,7 +168,7 @@ TUI never truncates history. Mirrored to TV from Phase 7 onwards.
 | Failure | Behaviour |
 |---|---|
 | STT API failure | Show error indicator; stop calling until STT recovers; speaker keeps talking |
-| Claude API / CLI failure | Keep loop running; retry with backoff; show "AI silent" indicator; no stale whispers |
+| LLM provider failure | Keep loop running; retry with backoff; show "AI silent" indicator; no stale whispers |
 | Mic input dies | Heartbeat check on audio queue; surface "no audio" warning if silent >5s |
 | Malformed JSON from LLM | Retry once with "respond in valid JSON only" suffix; if still malformed, treat as null whisper |
 | Bluetooth disconnect | User mutes laptop speakers manually; tool takes no automatic action |
@@ -180,7 +180,7 @@ TUI never truncates history. Mirrored to TV from Phase 7 onwards.
 | Role | Default | Fallback |
 |---|---|---|
 | STT | OpenAI Whisper API | local faster-whisper |
-| LLM | Claude CLI (`claude -p`) | OpenAI GPT / local Ollama |
+| LLM | Local AI CLI (authenticated session) | OpenAI GPT / local Ollama |
 | TTS | macOS `say` | ElevenLabs / espeak |
 
 Each interface: `transcribe`, `decide`, `speak`. Config selects implementation
@@ -193,7 +193,7 @@ at startup. Loop never imports a concrete provider.
 - **Language**: Go (single static binary)
 - **Audio capture**: `gordonklaus/portaudio` (CGO, requires `brew install portaudio`)
 - **STT**: OpenAI Whisper API via plain HTTP
-- **LLM**: Claude CLI via `os/exec` — auth is handled by the local CLI session
+- **LLM**: Local AI CLI via `os/exec` — auth is handled by the installed CLI session
 - **TTS**: macOS `say` via `os/exec`
 - **TUI**: Bubble Tea + Lip Gloss
 - **Persistence**: JSON state file written every cycle
@@ -233,7 +233,7 @@ All session artifacts written to `./sessions/<timestamp>/`:
 1. **Project init** — `go mod init`, folder structure, script parser, `example_talk.md`
 2. **Audio layer** — portaudio capture, ring buffer, WAV encoder
 3. **STT + TTS providers** — Whisper API, macOS `say`, provider interfaces
-4. **LLM + AI loop** — Claude CLI provider, loop trigger rules, drift detection, whisper manager
+4. **LLM + AI loop** — AI CLI provider, loop trigger rules, drift detection, whisper manager
 5. **TUI + integration** — Bubble Tea display, session persistence, `main.go` wiring
 
 The grill-me skill runs on item 1 of this sequence before any code is written.

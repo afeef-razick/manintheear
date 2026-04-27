@@ -60,7 +60,7 @@ Field names MUST be `snake_case`. Canonical field names for this project:
 | `attempt` | int | Whisper attempt count (1 or 2) |
 | `urgency` | string | `low`, `medium`, `high` |
 | `goroutine` | string | Goroutine name for lifecycle logs |
-| `provider` | string | `whisper`, `claude_cli`, `say` |
+| `provider` | string | `whisper`, `ai_cli`, `say` |
 | `elapsed_ms` | int64 | Duration in milliseconds |
 | `words` | int | Word count of transcript chunk |
 | `err` | error | Wrapped error value |
@@ -95,7 +95,7 @@ MUST NOT log:
 ### `llm`
 
 MUST log:
-- `DEBUG` on each Claude CLI invocation (elapsed_ms)
+- `DEBUG` on each LLM CLI invocation (elapsed_ms)
 - `WARN` on first malformed JSON (triggering retry)
 - `ERROR` on second malformed JSON (treat as null whisper)
 - `WARN` on CLI process error
