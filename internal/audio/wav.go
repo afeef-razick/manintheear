@@ -1,49 +1,42 @@
 package audio
 
-import (
-	"encoding/binary"
-	"bytes"
-)
+import "encoding/binary"
 
-// EncodeWAV encodes mono float32 PCM samples to a WAV byte slice.
-// Output is 16-bit signed PCM, little-endian.
 func EncodeWAV(samples []float32, sampleRate int) []byte {
 	const (
 		channels      = 1
 		bitsPerSample = 16
+		headerSize    = 44
 	)
-	byteRate := sampleRate * channels * bitsPerSample / 8
-	blockAlign := channels * bitsPerSample / 8
+	byteRate := uint32(sampleRate * channels * bitsPerSample / 8)
+	blockAlign := uint16(channels * bitsPerSample / 8)
+	dataSize := uint32(len(samples) * 2)
+	riffSize := 36 + dataSize
 
-	pcm := make([]byte, len(samples)*2)
+	out := make([]byte, headerSize+int(dataSize))
+
+	copy(out[0:], "RIFF")
+	binary.LittleEndian.PutUint32(out[4:], riffSize)
+	copy(out[8:], "WAVE")
+	copy(out[12:], "fmt ")
+	binary.LittleEndian.PutUint32(out[16:], 16)
+	binary.LittleEndian.PutUint16(out[20:], 1) // PCM
+	binary.LittleEndian.PutUint16(out[22:], channels)
+	binary.LittleEndian.PutUint32(out[24:], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(out[28:], byteRate)
+	binary.LittleEndian.PutUint16(out[32:], blockAlign)
+	binary.LittleEndian.PutUint16(out[34:], bitsPerSample)
+	copy(out[36:], "data")
+	binary.LittleEndian.PutUint32(out[40:], dataSize)
+
 	for i, s := range samples {
 		if s > 1.0 {
 			s = 1.0
 		} else if s < -1.0 {
 			s = -1.0
 		}
-		v := int16(s * 32767)
-		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(v))
+		binary.LittleEndian.PutUint16(out[headerSize+i*2:], uint16(int16(s*32767)))
 	}
 
-	dataSize := uint32(len(pcm))
-	riffSize := 36 + dataSize
-
-	var buf bytes.Buffer
-	buf.WriteString("RIFF")
-	binary.Write(&buf, binary.LittleEndian, riffSize)
-	buf.WriteString("WAVE")
-	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16))
-	binary.Write(&buf, binary.LittleEndian, uint16(1)) // PCM
-	binary.Write(&buf, binary.LittleEndian, uint16(channels))
-	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate))
-	binary.Write(&buf, binary.LittleEndian, uint32(byteRate))
-	binary.Write(&buf, binary.LittleEndian, uint16(blockAlign))
-	binary.Write(&buf, binary.LittleEndian, uint16(bitsPerSample))
-	buf.WriteString("data")
-	binary.Write(&buf, binary.LittleEndian, dataSize)
-	buf.Write(pcm)
-
-	return buf.Bytes()
+	return out
 }

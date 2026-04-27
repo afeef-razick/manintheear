@@ -12,14 +12,12 @@ import (
 
 const defaultBaseURL = "https://api.openai.com/v1"
 
-// WhisperProvider transcribes audio using the OpenAI Whisper API.
 type WhisperProvider struct {
 	apiKey  string
 	baseURL string
 	client  *http.Client
 }
 
-// New returns a WhisperProvider ready to transcribe.
 func New(apiKey string) (*WhisperProvider, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("stt: api key is required")
@@ -34,7 +32,6 @@ func New(apiKey string) (*WhisperProvider, error) {
 // SetBaseURL overrides the API base URL. Intended for testing only.
 func (w *WhisperProvider) SetBaseURL(u string) { w.baseURL = u }
 
-// Transcribe sends audio bytes (WAV) to Whisper and returns the transcript.
 func (w *WhisperProvider) Transcribe(ctx context.Context, audio []byte) (string, error) {
 	body, contentType, err := buildMultipart(audio)
 	if err != nil {
