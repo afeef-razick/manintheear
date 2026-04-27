@@ -37,3 +37,11 @@ func (w *whisperManager) record(text string) {
 	w.lastSpoken = time.Now()
 	w.attempts[text]++
 }
+
+func (w *whisperManager) timeUntilReady() time.Duration {
+	remaining := rateCap - time.Since(w.lastSpoken)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
