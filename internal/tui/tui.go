@@ -43,7 +43,7 @@ func waitForUpdate(ch <-chan loop.Update) tea.Cmd {
 	return func() tea.Msg {
 		update, ok := <-ch
 		if !ok {
-			return tea.Quit()
+			return tea.QuitMsg{}
 		}
 		return updateMsg(update)
 	}
@@ -96,7 +96,6 @@ func (m model) View() string {
 
 	var sb strings.Builder
 
-	// status header
 	phase := m.script.PhaseByID(m.state.CurrentPhase)
 	phaseName := "—"
 	if phase != nil {
@@ -114,7 +113,6 @@ func (m model) View() string {
 	sb.WriteString(labelStyle.Render(fmt.Sprintf("session: %s  |  q to quit", m.sessionDir)))
 	sb.WriteString("\n\n")
 
-	// transcript pane
 	sb.WriteString(dividerStyle.Render("── transcript ─────────────────────────"))
 	sb.WriteString("\n")
 	transcriptLines := m.transcript
@@ -132,7 +130,6 @@ func (m model) View() string {
 
 	sb.WriteString("\n")
 
-	// whisper pane
 	sb.WriteString(dividerStyle.Render("── whispers ────────────────────────────"))
 	sb.WriteString("\n")
 	maxWhispers := (m.height - 10) / 2
@@ -160,7 +157,6 @@ func (m model) View() string {
 	return sb.String()
 }
 
-// TUI wraps the Bubble Tea program for the loop display.
 type TUI struct {
 	script     *script.Script
 	sessionDir string

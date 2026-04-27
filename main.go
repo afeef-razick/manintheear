@@ -54,7 +54,6 @@ func run(scriptPath string) error {
 	if err != nil {
 		return fmt.Errorf("audio init: %w", err)
 	}
-	defer capture.Close()
 
 	sttProvider, err := stt.New(cfg.OpenAIKey)
 	if err != nil {
@@ -93,38 +92,41 @@ func run(scriptPath string) error {
 	var wg sync.WaitGroup
 
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := capture.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Warn("audio capture stopped", "err", err)
-		}
-	}()
+	go runCapture(ctx, &wg, capture)
 
 	wg.Add(1)
 	go runAudioSampler(ctx, &wg, capture, audioCh)
 
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer close(updateCh)
-		if err := l.Run(ctx, audioCh, updateCh); err != nil && !errors.Is(err, context.Canceled) {
-			slog.Error("loop exited", "err", err)
-		}
-	}()
+	go runLoop(ctx, &wg, l, audioCh, updateCh)
 
 	if err := ui.Run(updateCh); err != nil {
 		stop()
 		wg.Wait()
+		if closeErr := capture.Close(); closeErr != nil {
+			slog.Warn("audio close failed", "err", closeErr)
+		}
 		return fmt.Errorf("tui: %w", err)
 	}
 
 	stop()
 	wg.Wait()
+	if err := capture.Close(); err != nil {
+		slog.Warn("audio close failed", "err", err)
+	}
 	return nil
+}
+
+func runCapture(ctx context.Context, wg *sync.WaitGroup, c *audio.Capture) {
+	defer wg.Done()
+	if err := c.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Warn("audio capture stopped", "err", err)
+	}
 }
 
 func runAudioSampler(ctx context.Context, wg *sync.WaitGroup, c *audio.Capture, out chan<- []byte) {
 	defer wg.Done()
+	defer close(out)
 	ticker := time.NewTicker(7 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -139,6 +141,14 @@ func runAudioSampler(ctx context.Context, wg *sync.WaitGroup, c *audio.Capture, 
 				// drop if loop is backed up — next tick will send a fresh window
 			}
 		}
+	}
+}
+
+func runLoop(ctx context.Context, wg *sync.WaitGroup, l *loop.Loop, audioCh <-chan []byte, updateCh chan<- loop.Update) {
+	defer wg.Done()
+	defer close(updateCh)
+	if err := l.Run(ctx, audioCh, updateCh); err != nil && !errors.Is(err, context.Canceled) {
+		slog.Warn("loop exited unexpectedly", "err", err)
 	}
 }
 
