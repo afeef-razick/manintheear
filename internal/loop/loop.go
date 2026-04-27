@@ -92,18 +92,16 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 				sendUpdate(updateCh, Update{State: *state, LastTranscript: text, Status: currentStatus(st, tr, wm)})
 				continue
 			}
-			state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh, &st)
+			state, phaseStart = l.fire(ctx, state, window, wm, tr, phaseStart, updateCh, &st)
 			tr.reset()
-			st.LastLLMAt = time.Now()
 			sendUpdate(updateCh, Update{State: *state, LastTranscript: text, Status: currentStatus(st, tr, wm)})
 
 		case <-silentCheck.C:
 			// always send a status tick so the TUI timers stay fresh
 			sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
 			if tr.shouldFire() {
-				state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh, &st)
+				state, phaseStart = l.fire(ctx, state, window, wm, tr, phaseStart, updateCh, &st)
 				tr.reset()
-				st.LastLLMAt = time.Now()
 				sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
 			}
 		}
@@ -115,6 +113,7 @@ func (l *Loop) fire(
 	state *session.State,
 	window []transcriptChunk,
 	wm *whisperManager,
+	tr *trigger,
 	phaseStart time.Time,
 	updateCh chan<- Update,
 	st *Status,
@@ -126,7 +125,7 @@ func (l *Loop) fire(
 	)
 
 	st.Activity = ActivityDeciding
-	sendUpdate(updateCh, Update{State: *state, Status: currentStatus(*st, newTrigger(), wm)})
+	sendUpdate(updateCh, Update{State: *state, Status: currentStatus(*st, tr, wm)})
 
 	prompt := buildPrompt(l.script, *state, window)
 	raw, err := l.llm.Decide(ctx, prompt)
@@ -154,6 +153,7 @@ func (l *Loop) fire(
 			return state, phaseStart
 		}
 	}
+	st.LastLLMAt = time.Now()
 
 	newState := resp.State
 	if err := l.sess.SaveState(newState); err != nil {
@@ -183,7 +183,7 @@ func (l *Loop) fire(
 		spoken := wm.resolve(whisperText)
 		attempt := wm.attempts[whisperText] + 1
 		st.Activity = ActivitySpeaking
-		sendUpdate(updateCh, Update{State: newState, Whisper: spoken, Urgency: resp.Urgency, Status: currentStatus(*st, newTrigger(), wm)})
+		sendUpdate(updateCh, Update{State: newState, Whisper: spoken, Urgency: resp.Urgency, Status: currentStatus(*st, tr, wm)})
 		if err := l.tts.Speak(ctx, spoken); err != nil {
 			logger.Warn("tts error", "err", err)
 		} else {
@@ -208,12 +208,12 @@ func currentStatus(st Status, tr *trigger, wm *whisperManager) Status {
 }
 
 func shortErr(err error) string {
-	s := err.Error()
-	// trim long API error bodies to first 60 chars
-	if len(s) > 60 {
-		return s[:60] + "…"
+	// OpenAI 429 bodies are verbose; cap to avoid TUI status-bar overflow
+	runes := []rune(err.Error())
+	if len(runes) > 60 {
+		return string(runes[:60]) + "…"
 	}
-	return s
+	return string(runes)
 }
 
 func parseResponse(raw string) (*aiResponse, error) {

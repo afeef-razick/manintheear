@@ -45,7 +45,10 @@ func run(scriptPath string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	redirectLogsToFile(cfg.SessionsDir)
+	logFile := redirectLogsToFile(cfg.SessionsDir)
+	if logFile != nil {
+		defer logFile.Close()
+	}
 
 	sess, err := openSession(cfg.SessionsDir, s.TalkID)
 	if err != nil {
@@ -154,15 +157,18 @@ func runLoop(ctx context.Context, wg *sync.WaitGroup, l *loop.Loop, audioCh <-ch
 	}
 }
 
-func redirectLogsToFile(sessionsDir string) {
+func redirectLogsToFile(sessionsDir string) *os.File {
 	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
-		return
+		slog.Warn("could not create sessions dir for logging", "err", err)
+		return nil
 	}
 	lf, err := os.OpenFile(sessionsDir+"/manintheear.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return
+		slog.Warn("could not open log file", "err", err)
+		return nil
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(lf, nil)))
+	return lf
 }
 
 func openSession(baseDir string, talkID string) (*session.Session, error) {
