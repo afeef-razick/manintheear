@@ -37,6 +37,21 @@ func TestLoad_MissingOpenAIKey(t *testing.T) {
 	}
 }
 
+func TestLoad_DefaultLLMCmd(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	// do not set AI_CLI_CMD so the default path is exercised
+	t.Setenv("AI_CLI_CMD", "")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// envOr treats empty string the same as unset — default kicks in
+	if cfg.LLMCmd != "claude -p" {
+		t.Errorf("LLMCmd = %q, want %q", cfg.LLMCmd, "claude -p")
+	}
+}
+
 func TestLoad_CustomSessionsDir(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	t.Setenv("SESSIONS_DIR", "/tmp/sessions")
