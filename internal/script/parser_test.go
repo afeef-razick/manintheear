@@ -8,11 +8,17 @@ import (
 
 const testScript = "testdata/example_talk.md"
 
-func TestParse_HappyPath(t *testing.T) {
+func mustParse(t *testing.T) *script.Script {
+	t.Helper()
 	s, err := script.Parse(testScript)
 	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
+		t.Fatalf("Parse() unexpected error: %v", err)
 	}
+	return s
+}
+
+func TestParse_HappyPath(t *testing.T) {
+	s := mustParse(t)
 
 	if s.TalkID != "test_talk" {
 		t.Errorf("TalkID = %q, want %q", s.TalkID, "test_talk")
@@ -26,7 +32,7 @@ func TestParse_HappyPath(t *testing.T) {
 }
 
 func TestParse_PhaseFields(t *testing.T) {
-	s, _ := script.Parse(testScript)
+	s := mustParse(t)
 
 	p := s.Phases[0]
 	if p.ID != 1 {
@@ -43,8 +49,23 @@ func TestParse_PhaseFields(t *testing.T) {
 	}
 }
 
+func TestParse_BeatFields(t *testing.T) {
+	s := mustParse(t)
+
+	hook := s.BeatByID("1_hook")
+	if hook == nil {
+		t.Fatal("BeatByID(1_hook) returned nil")
+	}
+	if hook.Label != "Hook" {
+		t.Errorf("beat Label = %q, want %q", hook.Label, "Hook")
+	}
+	if hook.Description == "" {
+		t.Error("beat Description is empty")
+	}
+}
+
 func TestParse_BeatTags(t *testing.T) {
-	s, _ := script.Parse(testScript)
+	s := mustParse(t)
 
 	hook := s.BeatByID("1_hook")
 	if hook == nil {
@@ -66,17 +87,38 @@ func TestParse_BeatTags(t *testing.T) {
 	}
 }
 
-func TestParse_AllBeats(t *testing.T) {
-	s, _ := script.Parse(testScript)
+func TestParse_BeatByID_Unknown(t *testing.T) {
+	s := mustParse(t)
+	if s.BeatByID("no_such_id") != nil {
+		t.Error("BeatByID with unknown id should return nil")
+	}
+}
 
-	beats := s.AllBeats()
-	if len(beats) != 4 {
-		t.Errorf("AllBeats() count = %d, want 4", len(beats))
+func TestParse_AllBeats(t *testing.T) {
+	s := mustParse(t)
+
+	if len(s.AllBeats()) != 4 {
+		t.Errorf("AllBeats() count = %d, want 4", len(s.AllBeats()))
+	}
+}
+
+func TestParse_PhaseByID(t *testing.T) {
+	s := mustParse(t)
+
+	p := s.PhaseByID(2)
+	if p == nil {
+		t.Fatal("PhaseByID(2) returned nil")
+	}
+	if p.Label != "Problem" {
+		t.Errorf("PhaseByID(2).Label = %q, want %q", p.Label, "Problem")
+	}
+	if s.PhaseByID(99) != nil {
+		t.Error("PhaseByID with unknown id should return nil")
 	}
 }
 
 func TestParse_PhaseForBeat(t *testing.T) {
-	s, _ := script.Parse(testScript)
+	s := mustParse(t)
 
 	p := s.PhaseForBeat("2_problem")
 	if p == nil {
@@ -95,8 +137,7 @@ func TestParse_MissingFile(t *testing.T) {
 }
 
 func TestParse_MissingBeatID(t *testing.T) {
-	bad := "testdata/missing_beat_id.md"
-	_, err := script.Parse(bad)
+	_, err := script.Parse("testdata/missing_beat_id.md")
 	if err == nil {
 		t.Error("expected error for missing beat_id, got nil")
 	}
