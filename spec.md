@@ -228,15 +228,13 @@ All session artifacts written to `./sessions/<timestamp>/`:
 
 ---
 
-## Build sequence (5 PR milestones — see CLAUDE.md)
+## Build sequence (4 code PRs — see CLAUDE.md)
 
-1. **Project init** — `go mod init`, folder structure, script parser, `example_talk.md`
-2. **Audio layer** — portaudio capture, ring buffer, WAV encoder
-3. **STT + TTS providers** — Whisper API, macOS `say`, provider interfaces
-4. **LLM + AI loop** — AI CLI provider, loop trigger rules, drift detection, whisper manager
-5. **TUI + integration** — Bubble Tea display, session persistence, `main.go` wiring
-
-The grill-me skill runs on item 1 of this sequence before any code is written.
+1. ~~Foundation docs~~ — merged
+2. **Scaffold + data layer** — `go.mod`, `internal/` layout, script parser, config, `example_talk.md`
+3. **I/O providers** — audio capture + WAV encoder, STT (Whisper API), TTS (`say`), provider interfaces
+4. **Intelligence layer** — LLM provider, AI loop, trigger rules, drift detection, whisper manager, session persistence
+5. **Display + wiring** — Bubble Tea TUI, `main.go`, end-to-end integration
 
 ---
 

@@ -64,18 +64,18 @@ a concrete provider. This is the architecture; it does not change.
 
 ---
 
-## Build cycle — 5 PR milestones
+## Build cycle — 4 PR milestones
 
-The project is built in exactly five atomic PRs. Each PR must be
-fully reviewed and merged before the next begins.
+PR 1 (foundation docs) is already merged. The codebase ships in 4 more PRs.
+Each PR must be fully reviewed and merged before the next begins.
 
 | PR | Scope |
 |---|---|
-| 1 | Project init: module, folder structure, script parser, example script |
-| 2 | Audio layer: portaudio capture, ring buffer, WAV encoder |
-| 3 | Provider interfaces + STT (Whisper API) + TTS (macOS `say`) |
-| 4 | LLM provider (AI CLI) + AI loop + drift detection + whisper manager |
-| 5 | TUI (Bubble Tea) + session persistence + main.go wiring |
+| ~~1~~ | Foundation docs — merged |
+| 2 | Scaffold + data layer: `go.mod`, `internal/` layout, script parser, config, `example_talk.md` |
+| 3 | I/O providers: audio capture + WAV encoder, STT (Whisper API), TTS (`say`), provider interfaces |
+| 4 | Intelligence layer: LLM provider, AI loop, trigger rules, drift detection, whisper manager, session persistence |
+| 5 | Display + wiring: Bubble Tea TUI, `main.go`, end-to-end integration |
 
 ---
 
