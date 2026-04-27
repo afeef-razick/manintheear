@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -13,12 +14,18 @@ import (
 )
 
 var (
-	headerStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	labelStyle   = lipgloss.NewStyle().Faint(true)
-	whisperHigh  = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-	whisperMed   = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	whisperLow   = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	dividerStyle = lipgloss.NewStyle().Faint(true)
+	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	labelStyle    = lipgloss.NewStyle().Faint(true)
+	dividerStyle  = lipgloss.NewStyle().Faint(true)
+	statusOK      = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)  // green
+	statusBusy    = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)  // yellow
+	statusSpeak   = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)  // cyan
+	statusErr     = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)   // red
+	metaStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))              // dark grey
+	metaHighlight = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))             // white
+	whisperHigh   = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	whisperMed    = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	whisperLow    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 )
 
 type whisperLine struct {
@@ -29,6 +36,7 @@ type whisperLine struct {
 type model struct {
 	script     *script.Script
 	state      session.State
+	status     loop.Status
 	transcript []string
 	whispers   []whisperLine
 	updateCh   <-chan loop.Update
@@ -70,6 +78,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateMsg:
 		m.state = msg.State
+		m.status = msg.Status
 		if msg.LastTranscript != "" {
 			m.transcript = append(m.transcript, msg.LastTranscript)
 			if len(m.transcript) > 50 {
@@ -111,36 +120,35 @@ func (m model) View() string {
 	)))
 	sb.WriteString("\n")
 	sb.WriteString(labelStyle.Render(fmt.Sprintf("session: %s  |  q to quit", m.sessionDir)))
+	sb.WriteString("\n")
+
+	sb.WriteString(renderStatusBar(m.status))
 	sb.WriteString("\n\n")
+
+	paneHeight := (m.height - 10) / 2
+	if paneHeight < 3 {
+		paneHeight = 3
+	}
 
 	sb.WriteString(dividerStyle.Render("── transcript ─────────────────────────"))
 	sb.WriteString("\n")
-	transcriptLines := m.transcript
-	maxLines := (m.height - 10) / 2
-	if maxLines < 3 {
-		maxLines = 3
+	lines := m.transcript
+	if len(lines) > paneHeight {
+		lines = lines[len(lines)-paneHeight:]
 	}
-	if len(transcriptLines) > maxLines {
-		transcriptLines = transcriptLines[len(transcriptLines)-maxLines:]
-	}
-	for _, line := range transcriptLines {
+	for _, line := range lines {
 		sb.WriteString(line)
 		sb.WriteString("\n")
 	}
 
 	sb.WriteString("\n")
-
 	sb.WriteString(dividerStyle.Render("── whispers ────────────────────────────"))
 	sb.WriteString("\n")
-	maxWhispers := (m.height - 10) / 2
-	if maxWhispers < 3 {
-		maxWhispers = 3
+	wlines := m.whispers
+	if len(wlines) > paneHeight {
+		wlines = wlines[len(wlines)-paneHeight:]
 	}
-	whisperLines := m.whispers
-	if len(whisperLines) > maxWhispers {
-		whisperLines = whisperLines[len(whisperLines)-maxWhispers:]
-	}
-	for _, w := range whisperLines {
+	for _, w := range wlines {
 		var styled string
 		switch w.urgency {
 		case "high":
@@ -155,6 +163,66 @@ func (m model) View() string {
 	}
 
 	return sb.String()
+}
+
+func renderStatusBar(st loop.Status) string {
+	icon, iconStyle := activityIcon(st)
+
+	var parts []string
+	parts = append(parts, iconStyle.Render(icon+" "+string(st.Activity)))
+
+	parts = append(parts, metaStyle.Render("words: ")+metaHighlight.Render(fmt.Sprintf("%d", st.WordsSince)))
+
+	if !st.LastSTTAt.IsZero() {
+		parts = append(parts, metaStyle.Render("stt: ")+metaHighlight.Render(relTime(st.LastSTTAt)))
+	} else {
+		parts = append(parts, metaStyle.Render("stt: ")+metaStyle.Render("never"))
+	}
+
+	if !st.LastLLMAt.IsZero() {
+		parts = append(parts, metaStyle.Render("llm: ")+metaHighlight.Render(relTime(st.LastLLMAt)))
+	} else {
+		parts = append(parts, metaStyle.Render("llm: ")+metaStyle.Render("never"))
+	}
+
+	if st.WhisperBlockedMs > 0 {
+		secs := (st.WhisperBlockedMs + 999) / 1000
+		parts = append(parts, metaStyle.Render("whisper: ")+statusBusy.Render(fmt.Sprintf("blocked %ds", secs)))
+	} else {
+		parts = append(parts, metaStyle.Render("whisper: ")+statusOK.Render("ready"))
+	}
+
+	line := strings.Join(parts, metaStyle.Render("  ·  "))
+
+	if st.LastErr != "" {
+		line += "\n" + statusErr.Render("  ⚠ "+st.LastErr)
+	}
+
+	return line
+}
+
+func activityIcon(st loop.Status) (string, lipgloss.Style) {
+	if st.LastErr != "" {
+		return "⚠", statusErr
+	}
+	switch st.Activity {
+	case loop.ActivityTranscribing:
+		return "◎", statusBusy
+	case loop.ActivityDeciding:
+		return "◎", statusBusy
+	case loop.ActivitySpeaking:
+		return "◆", statusSpeak
+	default:
+		return "●", statusOK
+	}
+}
+
+func relTime(t time.Time) string {
+	d := time.Since(t).Round(time.Second)
+	if d < time.Second {
+		return "now"
+	}
+	return fmt.Sprintf("%ds ago", int(d.Seconds()))
 }
 
 type TUI struct {

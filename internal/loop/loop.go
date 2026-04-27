@@ -47,6 +47,8 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 	var window []transcriptChunk
 	phaseStart := time.Now()
 
+	st := Status{Activity: ActivityListening}
+
 	// fires LLM even during silence, honouring the 18s hard cap when no audio arrives
 	silentCheck := time.NewTicker(time.Second)
 	defer silentCheck.Stop()
@@ -57,14 +59,24 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 			return ctx.Err()
 
 		case audio := <-audioCh:
+			st.Activity = ActivityTranscribing
+			sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
+
 			text, err := l.stt.Transcribe(ctx, audio)
+			st.Activity = ActivityListening
 			if err != nil {
 				logger.Warn("stt error", "err", err)
+				st.LastErr = "STT: " + shortErr(err)
+				sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
 				continue
 			}
+			st.LastSTTAt = time.Now()
+			st.LastErr = ""
+
 			if text == "" {
 				continue
 			}
+
 			chunk := transcriptChunk{text: text, at: time.Now(), words: countWords(text)}
 			if err := l.sess.AppendTranscript(session.TranscriptEntry{
 				Timestamp: chunk.at,
@@ -77,18 +89,22 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 			tr.add(chunk.words)
 
 			if !tr.shouldFire() {
-				sendUpdate(updateCh, Update{State: *state, LastTranscript: text})
+				sendUpdate(updateCh, Update{State: *state, LastTranscript: text, Status: currentStatus(st, tr, wm)})
 				continue
 			}
-			state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh)
+			state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh, &st)
 			tr.reset()
-			sendUpdate(updateCh, Update{State: *state, LastTranscript: text})
+			st.LastLLMAt = time.Now()
+			sendUpdate(updateCh, Update{State: *state, LastTranscript: text, Status: currentStatus(st, tr, wm)})
 
 		case <-silentCheck.C:
+			// always send a status tick so the TUI timers stay fresh
+			sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
 			if tr.shouldFire() {
-				state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh)
+				state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh, &st)
 				tr.reset()
-				sendUpdate(updateCh, Update{State: *state})
+				st.LastLLMAt = time.Now()
+				sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
 			}
 		}
 	}
@@ -101,6 +117,7 @@ func (l *Loop) fire(
 	wm *whisperManager,
 	phaseStart time.Time,
 	updateCh chan<- Update,
+	st *Status,
 ) (*session.State, time.Time) {
 	elapsed := time.Since(phaseStart)
 	logger.LogAttrs(ctx, slog.LevelDebug, "loop trigger",
@@ -108,13 +125,18 @@ func (l *Loop) fire(
 		slog.Int("window_chunks", len(window)),
 	)
 
-	prompt := buildPrompt(l.script, *state, window)
+	st.Activity = ActivityDeciding
+	sendUpdate(updateCh, Update{State: *state, Status: currentStatus(*st, newTrigger(), wm)})
 
+	prompt := buildPrompt(l.script, *state, window)
 	raw, err := l.llm.Decide(ctx, prompt)
+	st.Activity = ActivityListening
 	if err != nil {
 		logger.Warn("llm error", "err", err)
+		st.LastErr = "LLM: " + shortErr(err)
 		return state, phaseStart
 	}
+	st.LastErr = ""
 
 	resp, err := parseResponse(raw)
 	if err != nil {
@@ -122,11 +144,13 @@ func (l *Loop) fire(
 		raw2, err2 := l.llm.Decide(ctx, prompt+"\n\nRespond in valid JSON only. No markdown.")
 		if err2 != nil {
 			logger.Error("llm retry failed", "err", err2)
+			st.LastErr = "LLM retry: " + shortErr(err2)
 			return state, phaseStart
 		}
 		resp, err = parseResponse(raw2)
 		if err != nil {
 			logger.Error("llm malformed json after retry", "err", err)
+			st.LastErr = "LLM parse failed"
 			return state, phaseStart
 		}
 	}
@@ -150,7 +174,6 @@ func (l *Loop) fire(
 	if resp.Whisper != nil && *resp.Whisper != "" {
 		whisperText = *resp.Whisper
 	}
-
 	drift := detectDrift(l.script, newState, phaseStart)
 	if drift != "" {
 		whisperText = drift
@@ -159,6 +182,8 @@ func (l *Loop) fire(
 	if whisperText != "" && wm.canSpeak(whisperText) {
 		spoken := wm.resolve(whisperText)
 		attempt := wm.attempts[whisperText] + 1
+		st.Activity = ActivitySpeaking
+		sendUpdate(updateCh, Update{State: newState, Whisper: spoken, Urgency: resp.Urgency, Status: currentStatus(*st, newTrigger(), wm)})
 		if err := l.tts.Speak(ctx, spoken); err != nil {
 			logger.Warn("tts error", "err", err)
 		} else {
@@ -169,11 +194,26 @@ func (l *Loop) fire(
 				Urgency:   resp.Urgency,
 			})
 			wm.record(whisperText)
-			sendUpdate(updateCh, Update{State: newState, Whisper: spoken, Urgency: resp.Urgency})
 		}
+		st.Activity = ActivityListening
 	}
 
 	return &newState, phaseStart
+}
+
+func currentStatus(st Status, tr *trigger, wm *whisperManager) Status {
+	st.WordsSince = tr.wordsSince
+	st.WhisperBlockedMs = wm.timeUntilReady().Milliseconds()
+	return st
+}
+
+func shortErr(err error) string {
+	s := err.Error()
+	// trim long API error bodies to first 60 chars
+	if len(s) > 60 {
+		return s[:60] + "…"
+	}
+	return s
 }
 
 func parseResponse(raw string) (*aiResponse, error) {
