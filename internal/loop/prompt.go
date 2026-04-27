@@ -9,6 +9,7 @@ import (
 	"github.com/afeef-razick/manintheear/internal/session"
 )
 
+
 func buildPrompt(s *script.Script, state session.State, window []transcriptChunk) string {
 	var sb strings.Builder
 
@@ -53,14 +54,3 @@ func buildPrompt(s *script.Script, state session.State, window []transcriptChunk
 	return sb.String()
 }
 
-func countWords(text string) int {
-	return len(strings.Fields(text))
-}
-
-func beatIDs(beats []script.Beat) []string {
-	ids := make([]string, len(beats))
-	for i, b := range beats {
-		ids[i] = b.ID
-	}
-	return ids
-}

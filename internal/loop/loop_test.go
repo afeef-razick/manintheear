@@ -119,10 +119,15 @@ func TestParseResponse_NullWhisper(t *testing.T) {
 }
 
 func TestParseResponse_StripsMarkdownFences(t *testing.T) {
-	raw := "```json\n{\"state\":{\"current_phase\":1,\"beats_covered\":[],\"beats_remaining\":[]},\"whisper\":null,\"urgency\":\"low\"}\n```"
-	_, err := parseResponse(raw)
-	if err != nil {
-		t.Errorf("parseResponse() should strip fences, got error: %v", err)
+	cases := []string{
+		"```json\n{\"state\":{\"current_phase\":1,\"beats_covered\":[],\"beats_remaining\":[]},\"whisper\":null,\"urgency\":\"low\"}\n```",
+		"```\n{\"state\":{\"current_phase\":1,\"beats_covered\":[],\"beats_remaining\":[]},\"whisper\":null,\"urgency\":\"low\"}\n```",
+	}
+	for _, raw := range cases {
+		_, err := parseResponse(raw)
+		if err != nil {
+			t.Errorf("parseResponse() should strip fences, got error: %v\nfor input: %q", err, raw)
+		}
 	}
 }
 

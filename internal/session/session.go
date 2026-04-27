@@ -3,10 +3,13 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 )
+
+var logger = slog.Default().With("package", "session")
 
 type State struct {
 	CurrentPhase   int      `json:"current_phase"`
@@ -32,7 +35,8 @@ type manifest struct {
 }
 
 type Session struct {
-	dir string
+	dir    string
+	talkID string
 }
 
 func New(baseDir string, talkID string) (*Session, error) {
@@ -44,14 +48,21 @@ func New(baseDir string, talkID string) (*Session, error) {
 	if err := writeJSON(filepath.Join(dir, "manifest.json"), m); err != nil {
 		return nil, fmt.Errorf("session: write manifest: %w", err)
 	}
-	return &Session{dir: dir}, nil
+	logger.Info("session created", "session_id", filepath.Base(dir), "talk_id", talkID)
+	return &Session{dir: dir, talkID: talkID}, nil
 }
 
 func Resume(dir string) (*Session, error) {
-	if _, err := os.Stat(filepath.Join(dir, "manifest.json")); err != nil {
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
 		return nil, fmt.Errorf("session: no manifest in %s: %w", dir, err)
 	}
-	return &Session{dir: dir}, nil
+	var m manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("session: parse manifest: %w", err)
+	}
+	logger.Info("session resumed", "session_id", filepath.Base(dir), "talk_id", m.TalkID)
+	return &Session{dir: dir, talkID: m.TalkID}, nil
 }
 
 // FindLatest returns the most recent session directory for the given talkID,
@@ -59,7 +70,10 @@ func Resume(dir string) (*Session, error) {
 func FindLatest(baseDir string, talkID string) (string, error) {
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
-		return "", nil
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("session: read dir: %w", err)
 	}
 	for i := len(entries) - 1; i >= 0; i-- {
 		dir := filepath.Join(baseDir, entries[i].Name())
@@ -95,17 +109,26 @@ func (s *Session) LoadState() (*State, error) {
 
 func (s *Session) SaveState(st State) error {
 	if err := writeJSON(filepath.Join(s.dir, "state.json"), st); err != nil {
+		logger.Warn("state write failed", "err", err)
 		return fmt.Errorf("session: save state: %w", err)
 	}
 	return nil
 }
 
 func (s *Session) AppendTranscript(entry TranscriptEntry) error {
-	return appendJSONL(filepath.Join(s.dir, "transcript.jsonl"), entry)
+	if err := appendJSONL(filepath.Join(s.dir, "transcript.jsonl"), entry); err != nil {
+		logger.Warn("transcript write failed", "err", err)
+		return err
+	}
+	return nil
 }
 
 func (s *Session) AppendWhisper(entry WhisperEntry) error {
-	return appendJSONL(filepath.Join(s.dir, "whispers.jsonl"), entry)
+	if err := appendJSONL(filepath.Join(s.dir, "whispers.jsonl"), entry); err != nil {
+		logger.Warn("whisper write failed", "err", err)
+		return err
+	}
+	return nil
 }
 
 func (s *Session) Dir() string { return s.dir }

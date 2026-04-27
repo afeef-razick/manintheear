@@ -8,8 +8,6 @@ import (
 	"github.com/afeef-razick/manintheear/internal/session"
 )
 
-// detectDrift returns a whisper message when the speaker has clearly overrun the
-// current phase budget with beats still uncovered, or an empty string otherwise.
 func detectDrift(s *script.Script, state session.State, phaseStart time.Time) string {
 	if state.CurrentPhase == 0 {
 		return ""
@@ -34,11 +32,21 @@ func detectDrift(s *script.Script, state session.State, phaseStart time.Time) st
 		return ""
 	}
 
-	next := s.PhaseByID(state.CurrentPhase + 1)
+	// find the next phase by position, not by ID arithmetic (IDs may not be contiguous)
+	next := nextPhase(s, state.CurrentPhase)
 	if next != nil {
 		return fmt.Sprintf("wrap, move to phase %d", next.ID)
 	}
 	return "wrap it up"
+}
+
+func nextPhase(s *script.Script, currentID int) *script.Phase {
+	for i, p := range s.Phases {
+		if p.ID == currentID && i+1 < len(s.Phases) {
+			return &s.Phases[i+1]
+		}
+	}
+	return nil
 }
 
 func containsStr(slice []string, s string) bool {

@@ -12,7 +12,7 @@ import (
 	"github.com/afeef-razick/manintheear/internal/session"
 )
 
-var logger = slog.Default().With("pkg", "loop")
+var logger = slog.Default().With("package", "loop")
 
 type Loop struct {
 	script *script.Script
@@ -47,7 +47,7 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 	var window []transcriptChunk
 	phaseStart := time.Now()
 
-	// silentCheck fires the LLM even when no audio arrives, honouring the 18s hard cap.
+	// fires LLM even during silence, honouring the 18s hard cap when no audio arrives
 	silentCheck := time.NewTicker(time.Second)
 	defer silentCheck.Stop()
 
@@ -66,25 +66,27 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 				continue
 			}
 			chunk := transcriptChunk{text: text, at: time.Now(), words: countWords(text)}
-			_ = l.sess.AppendTranscript(session.TranscriptEntry{
+			if err := l.sess.AppendTranscript(session.TranscriptEntry{
 				Timestamp: chunk.at,
 				Text:      text,
 				WordCount: chunk.words,
-			})
-			window = append(window, chunk)
+			}); err != nil {
+				logger.Warn("transcript append failed", "err", err)
+			}
+			window = pruneWindow(append(window, chunk))
 			tr.add(chunk.words)
 
 			if !tr.shouldFire() {
 				sendUpdate(updateCh, Update{State: *state, LastTranscript: text})
 				continue
 			}
-			state, phaseStart = l.fire(ctx, state, window, wm, phaseStart)
+			state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh)
 			tr.reset()
 			sendUpdate(updateCh, Update{State: *state, LastTranscript: text})
 
 		case <-silentCheck.C:
 			if tr.shouldFire() {
-				state, phaseStart = l.fire(ctx, state, window, wm, phaseStart)
+				state, phaseStart = l.fire(ctx, state, window, wm, phaseStart, updateCh)
 				tr.reset()
 				sendUpdate(updateCh, Update{State: *state})
 			}
@@ -98,7 +100,14 @@ func (l *Loop) fire(
 	window []transcriptChunk,
 	wm *whisperManager,
 	phaseStart time.Time,
+	updateCh chan<- Update,
 ) (*session.State, time.Time) {
+	elapsed := time.Since(phaseStart)
+	logger.LogAttrs(ctx, slog.LevelDebug, "loop trigger",
+		slog.Int64("elapsed_ms", elapsed.Milliseconds()),
+		slog.Int("window_chunks", len(window)),
+	)
+
 	prompt := buildPrompt(l.script, *state, window)
 
 	raw, err := l.llm.Decide(ctx, prompt)
@@ -109,24 +118,32 @@ func (l *Loop) fire(
 
 	resp, err := parseResponse(raw)
 	if err != nil {
-		// one retry with explicit JSON instruction
+		logger.Warn("llm malformed json, retrying", "err", err)
 		raw2, err2 := l.llm.Decide(ctx, prompt+"\n\nRespond in valid JSON only. No markdown.")
 		if err2 != nil {
-			logger.Warn("llm retry error", "err", err2)
+			logger.Error("llm retry failed", "err", err2)
 			return state, phaseStart
 		}
 		resp, err = parseResponse(raw2)
 		if err != nil {
-			logger.Warn("llm parse error after retry", "err", err)
+			logger.Error("llm malformed json after retry", "err", err)
 			return state, phaseStart
 		}
 	}
 
 	newState := resp.State
-	_ = l.sess.SaveState(newState)
+	if err := l.sess.SaveState(newState); err != nil {
+		logger.Warn("state save failed", "err", err)
+	}
 
 	if newState.CurrentPhase != state.CurrentPhase {
+		logger.Info("phase transition", "phase", newState.CurrentPhase)
 		phaseStart = time.Now()
+	}
+	for _, id := range newState.BeatsCovered {
+		if !containsStr(state.BeatsCovered, id) {
+			logger.Info("beat covered", "beat_id", id, "phase", newState.CurrentPhase)
+		}
 	}
 
 	whisperText := ""
@@ -141,15 +158,18 @@ func (l *Loop) fire(
 
 	if whisperText != "" && wm.canSpeak(whisperText) {
 		spoken := wm.resolve(whisperText)
+		attempt := wm.attempts[whisperText] + 1
 		if err := l.tts.Speak(ctx, spoken); err != nil {
 			logger.Warn("tts error", "err", err)
 		} else {
+			logger.Info("whisper fired", "attempt", attempt, "urgency", resp.Urgency)
 			_ = l.sess.AppendWhisper(session.WhisperEntry{
 				Timestamp: time.Now(),
 				Text:      spoken,
 				Urgency:   resp.Urgency,
 			})
 			wm.record(whisperText)
+			sendUpdate(updateCh, Update{State: newState, Whisper: spoken, Urgency: resp.Urgency})
 		}
 	}
 
@@ -158,11 +178,9 @@ func (l *Loop) fire(
 
 func parseResponse(raw string) (*aiResponse, error) {
 	raw = strings.TrimSpace(raw)
-	// strip markdown fences if present
 	if strings.HasPrefix(raw, "```") {
-		lines := strings.SplitN(raw, "\n", 2)
-		if len(lines) == 2 {
-			raw = lines[1]
+		if idx := strings.Index(raw, "\n"); idx != -1 {
+			raw = raw[idx+1:]
 		}
 		raw = strings.TrimSuffix(strings.TrimSpace(raw), "```")
 	}
@@ -171,6 +189,16 @@ func parseResponse(raw string) (*aiResponse, error) {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &resp, nil
+}
+
+// pruneWindow drops chunks older than 35s to bound memory over long sessions.
+// 35s (not 30s) retains a small buffer beyond the prompt's 30s filter window.
+func pruneWindow(window []transcriptChunk) []transcriptChunk {
+	cutoff := time.Now().Add(-35 * time.Second)
+	for len(window) > 0 && window[0].at.Before(cutoff) {
+		window = window[1:]
+	}
+	return window
 }
 
 func sendUpdate(ch chan<- Update, u Update) {

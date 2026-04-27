@@ -3,7 +3,9 @@ package loop
 import "time"
 
 const (
-	rateCap    = 15 * time.Second
+	// 15s prevents rapid-fire interruptions that would distract the speaker mid-sentence.
+	rateCap = 15 * time.Second
+	// 2 attempts: initial whisper + one refire if still uncovered, then suppress to avoid nagging.
 	maxAttempts = 2
 )
 
