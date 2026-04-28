@@ -5,15 +5,15 @@
 ## What the tool does
 
 Listens to a live talk via laptop mic. Whispers short reminders into a
-bluetooth earphone if the speaker is missing beats or drifting off the
+bluetooth earphone if the speaker is missing points or drifting off the
 planned path. Has the talk script loaded as context. Runs locally for
 the duration of one talk.
 
 ## Two jobs only
 
-1. **Coverage** — make sure every important beat in the script is hit.
-2. **Drift catch** — gently flag when the speaker has wandered off the
-   planned path so they can choose to pull back.
+1. **Coverage** — make sure every important point in the script is hit.
+2. **Drift catch** — gently flag when the speaker has skipped past something
+   important so they can choose to address it.
 
 NOT a pace policer. NOT a phrasing critic. Two jobs, well done.
 
@@ -39,35 +39,40 @@ total_duration_seconds: 2700
 ## Phase 1: Opening · 120s
 <!-- phase_id: 1, planned_duration_seconds: 120 -->
 
-### Beat: Hook
-<!-- beat_id: 1_hook, tags: [critical, joke] -->
+### Point: Hook
+<!-- point_id: 1_hook, tags: [critical, joke] -->
 Open with the story. Counts as covered when audience laughs.
 
-### Beat: Credibility
-<!-- beat_id: 1_cred, tags: [critical] -->
+### Point: Credibility
+<!-- point_id: 1_cred, tags: [critical] -->
 One line on why you are the right person to talk about this.
 ```
 
 ### Phases
 
-Each talk has N phases (defined in the script). Each phase:
+Phases are **organisational only** — they group points for human readability
+and TUI display. They play no role in AI coverage tracking or whisper decisions.
+
+Each phase:
 - `id` — phase number
 - `label` — human name
-- `planned_duration_seconds` — time budget
-- `beats` — ordered list
+- `planned_duration_seconds` — time budget (display only)
+- `points` — ordered list
 
-### Beats
+### Points
 
-Single beat type with optional tags:
-- `id` — stable identifier
+The atomic unit the tool tracks. A point is a single distinct moment that
+needs to be made during the talk.
+
+- `id` — stable identifier (e.g. `1_hook`)
 - `label` — short human name
-- `description` — what counts as "covered"
+- `description` — what the speaker needs to say; also what "covered" means
 - `tags` — optional list
 
 ### Tag vocabulary (locked)
 
-- `critical` — must hit, recoverable late if missed
-- `joke` — must hit, NOT recoverable past the moment
+- `critical` — must hit; recoverable slightly late if missed
+- `joke` — must hit; NOT recoverable past the moment
 
 No other tags. Adding tags is a script change, not a code change.
 
@@ -75,56 +80,68 @@ No other tags. Adding tags is a script change, not a code change.
 
 ## AI loop
 
-### Trigger rule
+### When the loop fires
 
 Loop fires when ANY of:
 - `elapsed >= 6s` AND `new_words_since_last >= 20`
 - `elapsed >= 18s` (hard cap; silence is signal)
 - `new_words_since_last >= 60` (burst cap)
 
+The loop does NOT fire until the speaker has produced at least 15 words of
+real transcript. Pre-talk setup time is ignored entirely.
+
 ### Per-call inputs
 
-- Full script (sent as context each call — phases, beats, tags)
+- Full ordered list of all talk points (flat, no phase grouping in the AI context)
+- Which points have been covered so far
+- Which points remain (in presentation order)
 - Recent transcript chunk (~last 30s of speech)
-- Persisted state from previous cycle
 
 ### Per-call outputs (JSON)
 
 ```json
 {
-  "state": {
-    "current_phase": 2,
-    "beats_covered": ["1_hook", "1_cred"],
-    "beats_remaining": ["2_problem", "2_evidence"]
-  },
-  "whisper": "gugsi joke now",
+  "points_covered": ["1_hook", "1_cred"],
+  "points_remaining": ["2_problem", "2_evidence"],
+  "whisper": "ask: what's the most popular tool in 2026?",
+  "whisper_point_id": "2_question",
   "urgency": "medium"
 }
 ```
+
+### Coverage conservatism
+
+A point is only marked covered when the speaker has **clearly and substantively
+addressed it** — multiple sentences directly on that topic. A single word,
+passing mention, or partial reference does not count. The AI errs on the side
+of under-marking.
+
+### Point skipping
+
+If the speaker has covered 3 or more later points without addressing an earlier
+one, that earlier point is silently dropped from tracking — it is too late for
+a reminder to help. The tool does not nag about points the speaker has clearly
+moved past.
 
 ### State persistence
 
 AI returns state each cycle; we persist it to disk; feed it back next cycle.
 Robust to ad-libs and skips. On crash/restart: auto-resume from last
-persisted state file, no prompt.
+persisted state file.
 
 ---
 
-## Drift detection (hybrid rule)
+## Drift / reminder logic
 
-Drift fires when ANY of:
+Drift is handled **entirely by the AI**, not by Go-side timing rules.
 
-1. **Out-of-order** — speaker covered a beat from a later phase before
-   completing the current phase's beats.
-   → Whisper: `back to phase three`
+The AI is given the full ordered point list and knows where the speaker is.
+It whispers about the **next 1–2 uncovered points** near the speaker's current
+position. It does not suggest points further ahead (which would confuse the
+speaker) and does not raise points the speaker has moved past.
 
-2. **Multi-skip** — ≥2 consecutive beats uncovered while a later beat
-   was covered.
-   → Whisper: `you skipped gugsi`
-
-3. **Phase overrun** — current phase exceeded `planned_duration + 60s`
-   AND beats remain uncovered.
-   → Whisper: `wrap, move to phase four`
+Phase timing (planned_duration_seconds) is not used as a trigger for drift
+reminders. Phase overrun alone is not a useful signal.
 
 ---
 
@@ -132,17 +149,24 @@ Drift fires when ANY of:
 
 ### Style
 
-- **Length**: 3–6 words.
-- **Tone**: cryptic imperative.
-  Examples: `gugsi joke now`, `wrap phase three`, `back to plan`
-- **Voice**: macOS `say` default voice. Embraces the bit.
+- **Length**: 6–12 words.
+- **Tone**: specific, direct imperative. Includes the **actual content**, not
+  just the topic label.
+- Good: `ask: what's the most popular tool in 2026?`
+- Good: `say: this is a discussion, not a talk`
+- Good: `earphone: AI is listening and whispering to you`
+- Bad: `ask the question now` (too vague — which question?)
+- Bad: `frame the session` (too generic — says nothing actionable)
+- **Voice**: macOS `say` default voice.
 - NO emoji. NO full sentences. NO supportive tone.
 
 ### Repeat behaviour
 
-- 2 attempts max per beat.
-- Initial whisper → one re-fire ~30s later if still uncovered → suppress.
-- Re-fire uses marginally higher urgency: `STILL gugsi` not `gugsi joke now`.
+- 2 attempts max **per point** (keyed by point ID, not by whisper text).
+  This prevents repeated firings when the AI words the same reminder
+  slightly differently across cycles.
+- Initial whisper → one re-fire if still uncovered → suppress.
+- Re-fire prefixed with `again:` to distinguish from the first attempt.
 
 ### Global rate cap
 
@@ -155,11 +179,14 @@ AI picks most urgent; others re-evaluate naturally next cycle.
 
 A Bubble Tea window on the laptop:
 
-- **Status header (fixed)**: current phase, beats covered/total, beats remaining
-- **Transcript pane (full scrollback, autoscroll)**: every transcribed chunk
-- **Whisper pane (full scrollback, autoscroll)**: every whisper fired, urgency-coloured
+- **Status header (fixed)**: current phase, points covered/total, points remaining
+- **Status bar**: current activity (listening / transcribing / deciding / speaking),
+  word count since last LLM fire, time since last STT and LLM success, whisper
+  readiness (ready or blocked Xs)
+- **Transcript pane**: every transcribed chunk
+- **Whisper pane**: every whisper fired, urgency-coloured (red=high, yellow=medium, green=low)
 
-TUI never truncates history. Mirrored to TV from Phase 7 onwards.
+TUI never truncates history within a session.
 
 ---
 
@@ -167,11 +194,19 @@ TUI never truncates history. Mirrored to TV from Phase 7 onwards.
 
 | Failure | Behaviour |
 |---|---|
-| STT API failure | Show error indicator; stop calling until STT recovers; speaker keeps talking |
-| LLM provider failure | Keep loop running; retry with backoff; show "AI silent" indicator; no stale whispers |
-| Mic input dies | Heartbeat check on audio queue; surface "no audio" warning if silent >5s |
+| STT API failure | Show error in status bar; keep loop running |
+| LLM provider failure | Keep loop running; retry once; show error in status bar |
 | Malformed JSON from LLM | Retry once with "respond in valid JSON only" suffix; if still malformed, treat as null whisper |
-| Bluetooth disconnect | User mutes laptop speakers manually; tool takes no automatic action |
+| Bluetooth disconnect | User handles manually; tool takes no automatic action |
+
+---
+
+## STT noise filtering
+
+The STT model can hallucinate content during silence — common patterns include
+repetitive short phrases and non-English text. The tool discards transcripts
+that match known hallucination signatures before they reach the AI. Very short
+outputs (fewer than 5 words) are treated as noise.
 
 ---
 
@@ -217,7 +252,7 @@ warn and ask.
 ## Run model
 
 ```
-OPENAI_API_KEY=xxx ./manintheear talk_plan.md
+OPENAI_API_KEY=xxx AI_CLI_CMD="codex exec --skip-git-repo-check -" ./manintheear talk_plan.md
 ```
 
 All session artifacts written to `./sessions/<timestamp>/`:
@@ -225,16 +260,7 @@ All session artifacts written to `./sessions/<timestamp>/`:
 - `state.json` — latest AI state (overwritten each cycle)
 - `transcript.jsonl` — append-only transcript log
 - `whispers.jsonl` — append-only whisper log
-
----
-
-## Build sequence (4 code PRs — see CLAUDE.md)
-
-1. ~~Foundation docs~~ — merged
-2. **Scaffold + data layer** — `go.mod`, `internal/` layout, script parser, config, `example_talk.md`
-3. **I/O providers** — audio capture + WAV encoder, STT (Whisper API), TTS (`say`), provider interfaces
-4. **Intelligence layer** — LLM provider, AI loop, trigger rules, drift detection, whisper manager, session persistence
-5. **Display + wiring** — Bubble Tea TUI, `main.go`, end-to-end integration
+- `llm_calls.jsonl` — full prompt and response for every LLM cycle (for debugging)
 
 ---
 
