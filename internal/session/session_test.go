@@ -26,8 +26,8 @@ func TestSaveAndLoadState(t *testing.T) {
 
 	want := session.State{
 		CurrentPhase:   2,
-		BeatsCovered:   []string{"1_hook", "1_cred"},
-		BeatsRemaining: []string{"2_problem"},
+		PointsCovered:   []string{"1_hook", "1_cred"},
+		PointsRemaining: []string{"2_problem"},
 	}
 	if err := sess.SaveState(want); err != nil {
 		t.Fatalf("SaveState() error: %v", err)
@@ -43,8 +43,8 @@ func TestSaveAndLoadState(t *testing.T) {
 	if got.CurrentPhase != want.CurrentPhase {
 		t.Errorf("CurrentPhase = %d, want %d", got.CurrentPhase, want.CurrentPhase)
 	}
-	if len(got.BeatsCovered) != len(want.BeatsCovered) {
-		t.Errorf("BeatsCovered len = %d, want %d", len(got.BeatsCovered), len(want.BeatsCovered))
+	if len(got.PointsCovered) != len(want.PointsCovered) {
+		t.Errorf("PointsCovered len = %d, want %d", len(got.PointsCovered), len(want.PointsCovered))
 	}
 }
 

@@ -44,32 +44,32 @@ func TestParse_PhaseFields(t *testing.T) {
 	if p.PlannedDurationSeconds != 120 {
 		t.Errorf("Phase[0].PlannedDurationSeconds = %d, want 120", p.PlannedDurationSeconds)
 	}
-	if len(p.Beats) != 2 {
-		t.Errorf("Phase[0] beat count = %d, want 2", len(p.Beats))
+	if len(p.Points) != 2 {
+		t.Errorf("Phase[0] point count = %d, want 2", len(p.Points))
 	}
 }
 
-func TestParse_BeatFields(t *testing.T) {
+func TestParse_PointFields(t *testing.T) {
 	s := mustParse(t)
 
-	hook := s.BeatByID("1_hook")
+	hook := s.PointByID("1_hook")
 	if hook == nil {
-		t.Fatal("BeatByID(1_hook) returned nil")
+		t.Fatal("PointByID(1_hook) returned nil")
 	}
 	if hook.Label != "Hook" {
-		t.Errorf("beat Label = %q, want %q", hook.Label, "Hook")
+		t.Errorf("point Label = %q, want %q", hook.Label, "Hook")
 	}
 	if hook.Description == "" {
-		t.Error("beat Description is empty")
+		t.Error("point Description is empty")
 	}
 }
 
-func TestParse_BeatTags(t *testing.T) {
+func TestParse_PointTags(t *testing.T) {
 	s := mustParse(t)
 
-	hook := s.BeatByID("1_hook")
+	hook := s.PointByID("1_hook")
 	if hook == nil {
-		t.Fatal("BeatByID(1_hook) returned nil")
+		t.Fatal("PointByID(1_hook) returned nil")
 	}
 	if !hook.HasTag("critical") {
 		t.Error("1_hook missing tag 'critical'")
@@ -78,27 +78,27 @@ func TestParse_BeatTags(t *testing.T) {
 		t.Error("1_hook missing tag 'joke'")
 	}
 
-	evidence := s.BeatByID("2_evidence")
+	evidence := s.PointByID("2_evidence")
 	if evidence == nil {
-		t.Fatal("BeatByID(2_evidence) returned nil")
+		t.Fatal("PointByID(2_evidence) returned nil")
 	}
 	if len(evidence.Tags) != 0 {
 		t.Errorf("2_evidence expected no tags, got %v", evidence.Tags)
 	}
 }
 
-func TestParse_BeatByID_Unknown(t *testing.T) {
+func TestParse_PointByID_Unknown(t *testing.T) {
 	s := mustParse(t)
-	if s.BeatByID("no_such_id") != nil {
-		t.Error("BeatByID with unknown id should return nil")
+	if s.PointByID("no_such_id") != nil {
+		t.Error("PointByID with unknown id should return nil")
 	}
 }
 
-func TestParse_AllBeats(t *testing.T) {
+func TestParse_AllPoints(t *testing.T) {
 	s := mustParse(t)
 
-	if len(s.AllBeats()) != 4 {
-		t.Errorf("AllBeats() count = %d, want 4", len(s.AllBeats()))
+	if len(s.AllPoints()) != 4 {
+		t.Errorf("AllPoints() count = %d, want 4", len(s.AllPoints()))
 	}
 }
 
@@ -117,15 +117,15 @@ func TestParse_PhaseByID(t *testing.T) {
 	}
 }
 
-func TestParse_PhaseForBeat(t *testing.T) {
+func TestParse_PhaseForPoint(t *testing.T) {
 	s := mustParse(t)
 
-	p := s.PhaseForBeat("2_problem")
+	p := s.PhaseForPoint("2_problem")
 	if p == nil {
-		t.Fatal("PhaseForBeat returned nil")
+		t.Fatal("PhaseForPoint returned nil")
 	}
 	if p.ID != 2 {
-		t.Errorf("PhaseForBeat(2_problem).ID = %d, want 2", p.ID)
+		t.Errorf("PhaseForPoint(2_problem).ID = %d, want 2", p.ID)
 	}
 }
 
@@ -136,9 +136,9 @@ func TestParse_MissingFile(t *testing.T) {
 	}
 }
 
-func TestParse_MissingBeatID(t *testing.T) {
-	_, err := script.Parse("testdata/missing_beat_id.md")
+func TestParse_MissingPointID(t *testing.T) {
+	_, err := script.Parse("testdata/missing_point_id.md")
 	if err == nil {
-		t.Error("expected error for missing beat_id, got nil")
+		t.Error("expected error for missing point_id, got nil")
 	}
 }
