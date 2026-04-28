@@ -110,8 +110,8 @@ func (m model) View() string {
 	if phase != nil {
 		phaseName = phase.Label
 	}
-	total := len(m.script.AllBeats())
-	covered := len(m.state.BeatsCovered)
+	total := len(m.script.AllPoints())
+	covered := len(m.state.PointsCovered)
 	remaining := total - covered
 
 	sb.WriteString(headerStyle.Render(fmt.Sprintf(

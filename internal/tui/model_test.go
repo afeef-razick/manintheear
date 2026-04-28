@@ -58,7 +58,7 @@ func TestModel_UpdateStateTransition(t *testing.T) {
 	ch := make(chan loop.Update, 1)
 	m := newModel(testScript(t), ch, "/tmp")
 
-	newState := session.State{CurrentPhase: 2, BeatsCovered: []string{"1_hook"}}
+	newState := session.State{CurrentPhase: 2, PointsCovered: []string{"1_hook"}}
 	updated, _ := m.Update(updateMsg(loop.Update{State: newState}))
 	got := updated.(model)
 	if got.state.CurrentPhase != 2 {

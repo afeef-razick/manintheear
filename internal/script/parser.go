@@ -9,17 +9,17 @@ import (
 	"strings"
 )
 
-// Beat is a single trackable moment within a phase.
-type Beat struct {
+// Point is a single trackable moment within a phase.
+type Point struct {
 	ID          string
 	Label       string
 	Description string
 	Tags        []string
 }
 
-// HasTag reports whether the beat carries the given tag.
-func (b *Beat) HasTag(tag string) bool {
-	for _, t := range b.Tags {
+// HasTag reports whether the point carries the given tag.
+func (p *Point) HasTag(tag string) bool {
+	for _, t := range p.Tags {
 		if t == tag {
 			return true
 		}
@@ -27,12 +27,12 @@ func (b *Beat) HasTag(tag string) bool {
 	return false
 }
 
-// Phase is a timed section of the talk containing an ordered list of beats.
+// Phase is a timed section of the talk containing an ordered list of points.
 type Phase struct {
 	ID                     int
 	Label                  string
 	PlannedDurationSeconds int
-	Beats                  []Beat
+	Points                 []Point
 }
 
 // Script is the fully-parsed talk plan.
@@ -42,21 +42,21 @@ type Script struct {
 	Phases               []Phase
 }
 
-// AllBeats returns every beat across all phases in order.
-func (s *Script) AllBeats() []Beat {
-	var out []Beat
+// AllPoints returns every point across all phases in order.
+func (s *Script) AllPoints() []Point {
+	var out []Point
 	for _, p := range s.Phases {
-		out = append(out, p.Beats...)
+		out = append(out, p.Points...)
 	}
 	return out
 }
 
-// BeatByID returns the beat with the given ID, or nil.
-func (s *Script) BeatByID(id string) *Beat {
+// PointByID returns the point with the given ID, or nil.
+func (s *Script) PointByID(id string) *Point {
 	for i := range s.Phases {
-		for j := range s.Phases[i].Beats {
-			if s.Phases[i].Beats[j].ID == id {
-				return &s.Phases[i].Beats[j]
+		for j := range s.Phases[i].Points {
+			if s.Phases[i].Points[j].ID == id {
+				return &s.Phases[i].Points[j]
 			}
 		}
 	}
@@ -73,11 +73,11 @@ func (s *Script) PhaseByID(id int) *Phase {
 	return nil
 }
 
-// PhaseForBeat returns the phase that owns the given beat ID, or nil.
-func (s *Script) PhaseForBeat(beatID string) *Phase {
+// PhaseForPoint returns the phase that owns the given point ID, or nil.
+func (s *Script) PhaseForPoint(pointID string) *Phase {
 	for i := range s.Phases {
-		for _, b := range s.Phases[i].Beats {
-			if b.ID == beatID {
+		for _, p := range s.Phases[i].Points {
+			if p.ID == pointID {
 				return &s.Phases[i]
 			}
 		}
@@ -86,10 +86,10 @@ func (s *Script) PhaseForBeat(beatID string) *Phase {
 }
 
 var (
-	rePhaseHeader  = regexp.MustCompile(`^##\s+Phase\s+\d+`)
-	reBeatHeader   = regexp.MustCompile(`^###\s+Beat:\s+(.+)`)
-	rePhaseComment = regexp.MustCompile(`<!--\s*phase_id:\s*(\d+),\s*planned_duration_seconds:\s*(\d+)\s*-->`)
-	reBeatComment  = regexp.MustCompile(`<!--\s*beat_id:\s*([^,>\s]+)(?:,\s*tags:\s*\[([^\]]*)\])?\s*-->`)
+	rePhaseHeader   = regexp.MustCompile(`^##\s+Phase\s+\d+`)
+	rePointHeader   = regexp.MustCompile(`^###\s+Point:\s+(.+)`)
+	rePhaseComment  = regexp.MustCompile(`<!--\s*phase_id:\s*(\d+),\s*planned_duration_seconds:\s*(\d+)\s*-->`)
+	rePointComment  = regexp.MustCompile(`<!--\s*point_id:\s*([^,>\s]+)(?:,\s*tags:\s*\[([^\]]*)\])?\s*-->`)
 )
 
 // Parse reads and parses the script file at the given path.
@@ -195,43 +195,43 @@ func parsePhase(lines []string) (*Phase, error) {
 		return nil, fmt.Errorf("script: phase %q missing phase_id comment", p.Label)
 	}
 
-	// Collect beat block start indices.
-	var beatStarts []int
+	// Collect point block start indices.
+	var pointStarts []int
 	for i, l := range lines {
-		if reBeatHeader.MatchString(l) {
-			beatStarts = append(beatStarts, i)
+		if rePointHeader.MatchString(l) {
+			pointStarts = append(pointStarts, i)
 		}
 	}
-	for bi, start := range beatStarts {
+	for pi, start := range pointStarts {
 		end := len(lines)
-		if bi+1 < len(beatStarts) {
-			end = beatStarts[bi+1]
+		if pi+1 < len(pointStarts) {
+			end = pointStarts[pi+1]
 		}
-		beat, err := parseBeat(lines[start:end])
+		point, err := parsePoint(lines[start:end])
 		if err != nil {
 			return nil, err
 		}
-		p.Beats = append(p.Beats, *beat)
+		p.Points = append(p.Points, *point)
 	}
 
 	return p, nil
 }
 
-func parseBeat(lines []string) (*Beat, error) {
-	b := &Beat{}
+func parsePoint(lines []string) (*Point, error) {
+	pt := &Point{}
 
-	if m := reBeatHeader.FindStringSubmatch(lines[0]); m != nil {
-		b.Label = strings.TrimSpace(m[1])
+	if m := rePointHeader.FindStringSubmatch(lines[0]); m != nil {
+		pt.Label = strings.TrimSpace(m[1])
 	}
 
 	var descLines []string
 	for _, l := range lines[1:] {
-		if m := reBeatComment.FindStringSubmatch(l); m != nil {
-			b.ID = strings.TrimSpace(m[1])
+		if m := rePointComment.FindStringSubmatch(l); m != nil {
+			pt.ID = strings.TrimSpace(m[1])
 			if m[2] != "" {
 				for _, tag := range strings.Split(m[2], ",") {
 					if t := strings.TrimSpace(tag); t != "" {
-						b.Tags = append(b.Tags, t)
+						pt.Tags = append(pt.Tags, t)
 					}
 				}
 			}
@@ -244,12 +244,12 @@ func parseBeat(lines []string) (*Beat, error) {
 			descLines = append(descLines, t)
 		}
 	}
-	b.Description = strings.Join(descLines, " ")
+	pt.Description = strings.Join(descLines, " ")
 
-	if b.ID == "" {
-		return nil, fmt.Errorf("script: beat %q missing beat_id comment", b.Label)
+	if pt.ID == "" {
+		return nil, fmt.Errorf("script: point %q missing point_id comment", pt.Label)
 	}
-	return b, nil
+	return pt, nil
 }
 
 func splitKV(line string) (key, value string, ok bool) {

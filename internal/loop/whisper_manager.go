@@ -11,31 +11,39 @@ const (
 
 type whisperManager struct {
 	lastSpoken time.Time
-	attempts   map[string]int
+	attempts   map[string]int // keyed by point ID, not text (prevents repeated firings for the same point with varied wording)
 }
 
 func newWhisperManager() *whisperManager {
 	return &whisperManager{attempts: make(map[string]int)}
 }
 
-func (w *whisperManager) canSpeak(text string) bool {
-	if time.Since(w.lastSpoken) < rateCap {
-		return false
-	}
-	return w.attempts[text] < maxAttempts
-}
-
-// resolve returns the text to speak, prefixing with "STILL " on the second attempt.
-func (w *whisperManager) resolve(text string) string {
-	if w.attempts[text] == 1 {
-		return "STILL " + text
+// key returns the deduplication key: point ID when available, otherwise the whisper text.
+func (w *whisperManager) key(pointID, text string) string {
+	if pointID != "" {
+		return pointID
 	}
 	return text
 }
 
-func (w *whisperManager) record(text string) {
+func (w *whisperManager) canSpeak(pointID, text string) bool {
+	if time.Since(w.lastSpoken) < rateCap {
+		return false
+	}
+	return w.attempts[w.key(pointID, text)] < maxAttempts
+}
+
+// resolve returns the text to speak, prefixing with "again: " on the second attempt.
+func (w *whisperManager) resolve(pointID, text string) string {
+	if w.attempts[w.key(pointID, text)] == 1 {
+		return "again: " + text
+	}
+	return text
+}
+
+func (w *whisperManager) record(pointID, text string) {
 	w.lastSpoken = time.Now()
-	w.attempts[text]++
+	w.attempts[w.key(pointID, text)]++
 }
 
 func (w *whisperManager) timeUntilReady() time.Duration {

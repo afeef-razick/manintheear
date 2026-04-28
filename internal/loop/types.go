@@ -58,7 +58,9 @@ type transcriptChunk struct {
 }
 
 type aiResponse struct {
-	State   session.State `json:"state"`
-	Whisper *string       `json:"whisper"`
-	Urgency string        `json:"urgency"`
+	PointsCovered   []string `json:"points_covered"`
+	PointsRemaining []string `json:"points_remaining"`
+	Whisper         *string  `json:"whisper"`
+	WhisperPointID  string   `json:"whisper_point_id"` // ID of the point being reminded about
+	Urgency         string   `json:"urgency"`
 }

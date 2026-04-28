@@ -12,9 +12,9 @@ import (
 var logger = slog.Default().With("package", "session")
 
 type State struct {
-	CurrentPhase   int      `json:"current_phase"`
-	BeatsCovered   []string `json:"beats_covered"`
-	BeatsRemaining []string `json:"beats_remaining"`
+	CurrentPhase    int      `json:"current_phase"`
+	PointsCovered   []string `json:"points_covered"`
+	PointsRemaining []string `json:"points_remaining"`
 }
 
 type TranscriptEntry struct {
@@ -27,6 +27,12 @@ type WhisperEntry struct {
 	Timestamp time.Time `json:"ts"`
 	Text      string    `json:"text"`
 	Urgency   string    `json:"urgency"`
+}
+
+type LLMCallEntry struct {
+	Timestamp time.Time `json:"ts"`
+	Prompt    string    `json:"prompt"`
+	Response  string    `json:"response"`
 }
 
 type manifest struct {
@@ -118,6 +124,14 @@ func (s *Session) SaveState(st State) error {
 func (s *Session) AppendTranscript(entry TranscriptEntry) error {
 	if err := appendJSONL(filepath.Join(s.dir, "transcript.jsonl"), entry); err != nil {
 		logger.Warn("transcript write failed", "err", err)
+		return err
+	}
+	return nil
+}
+
+func (s *Session) AppendLLMCall(entry LLMCallEntry) error {
+	if err := appendJSONL(filepath.Join(s.dir, "llm_calls.jsonl"), entry); err != nil {
+		logger.Warn("llm call write failed", "err", err)
 		return err
 	}
 	return nil

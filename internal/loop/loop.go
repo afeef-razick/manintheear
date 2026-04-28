@@ -36,16 +36,16 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 	}
 	if state == nil {
 		state = &session.State{
-			CurrentPhase:   1,
-			BeatsCovered:   []string{},
-			BeatsRemaining: beatIDs(l.script.AllBeats()),
+			CurrentPhase:    1,
+			PointsCovered:   []string{},
+			PointsRemaining: pointIDs(l.script.AllPoints()),
 		}
 	}
 
 	tr := newTrigger()
 	wm := newWhisperManager()
 	var window []transcriptChunk
-	phaseStart := time.Now()
+	var phaseStart time.Time // set on first real speech, not at loop start
 
 	st := Status{Activity: ActivityListening}
 
@@ -73,8 +73,12 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 			st.LastSTTAt = time.Now()
 			st.LastErr = ""
 
-			if text == "" {
+			if text == "" || isHallucination(text) {
 				continue
+			}
+
+			if phaseStart.IsZero() {
+				phaseStart = time.Now()
 			}
 
 			chunk := transcriptChunk{text: text, at: time.Now(), words: countWords(text)}
@@ -88,7 +92,7 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 			window = pruneWindow(append(window, chunk))
 			tr.add(chunk.words)
 
-			if !tr.shouldFire() {
+			if !tr.shouldFire() || windowWords(window) < 15 {
 				sendUpdate(updateCh, Update{State: *state, LastTranscript: text, Status: currentStatus(st, tr, wm)})
 				continue
 			}
@@ -99,7 +103,8 @@ func (l *Loop) Run(ctx context.Context, audioCh <-chan []byte, updateCh chan<- U
 		case <-silentCheck.C:
 			// always send a status tick so the TUI timers stay fresh
 			sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
-			if tr.shouldFire() {
+			// don't fire the LLM until the speaker has actually started talking
+			if !phaseStart.IsZero() && tr.shouldFire() && windowWords(window) >= 15 {
 				state, phaseStart = l.fire(ctx, state, window, wm, tr, phaseStart, updateCh, &st)
 				tr.reset()
 				sendUpdate(updateCh, Update{State: *state, Status: currentStatus(st, tr, wm)})
@@ -137,6 +142,7 @@ func (l *Loop) fire(
 	}
 	st.LastErr = ""
 
+	finalRaw := raw
 	resp, err := parseResponse(raw)
 	if err != nil {
 		logger.Warn("llm malformed json, retrying", "err", err)
@@ -152,10 +158,20 @@ func (l *Loop) fire(
 			st.LastErr = "LLM parse failed"
 			return state, phaseStart
 		}
+		finalRaw = raw2
 	}
 	st.LastLLMAt = time.Now()
+	_ = l.sess.AppendLLMCall(session.LLMCallEntry{
+		Timestamp: st.LastLLMAt,
+		Prompt:    prompt,
+		Response:  finalRaw,
+	})
 
-	newState := resp.State
+	newState := session.State{
+		CurrentPhase:    computeCurrentPhase(l.script, resp.PointsCovered, state.CurrentPhase),
+		PointsCovered:   resp.PointsCovered,
+		PointsRemaining: resp.PointsRemaining,
+	}
 	if err := l.sess.SaveState(newState); err != nil {
 		logger.Warn("state save failed", "err", err)
 	}
@@ -164,9 +180,9 @@ func (l *Loop) fire(
 		logger.Info("phase transition", "phase", newState.CurrentPhase)
 		phaseStart = time.Now()
 	}
-	for _, id := range newState.BeatsCovered {
-		if !containsStr(state.BeatsCovered, id) {
-			logger.Info("beat covered", "beat_id", id, "phase", newState.CurrentPhase)
+	for _, id := range newState.PointsCovered {
+		if !containsStr(state.PointsCovered, id) {
+			logger.Info("point covered", "point_id", id, "phase", newState.CurrentPhase)
 		}
 	}
 
@@ -174,31 +190,47 @@ func (l *Loop) fire(
 	if resp.Whisper != nil && *resp.Whisper != "" {
 		whisperText = *resp.Whisper
 	}
-	drift := detectDrift(l.script, newState, phaseStart)
-	if drift != "" {
-		whisperText = drift
-	}
 
-	if whisperText != "" && wm.canSpeak(whisperText) {
-		spoken := wm.resolve(whisperText)
-		attempt := wm.attempts[whisperText] + 1
+	if whisperText != "" && wm.canSpeak(resp.WhisperPointID, whisperText) {
+		spoken := wm.resolve(resp.WhisperPointID, whisperText)
+		attempt := wm.attempts[wm.key(resp.WhisperPointID, whisperText)] + 1
 		st.Activity = ActivitySpeaking
 		sendUpdate(updateCh, Update{State: newState, Whisper: spoken, Urgency: resp.Urgency, Status: currentStatus(*st, tr, wm)})
 		if err := l.tts.Speak(ctx, spoken); err != nil {
 			logger.Warn("tts error", "err", err)
 		} else {
-			logger.Info("whisper fired", "attempt", attempt, "urgency", resp.Urgency)
+			logger.Info("whisper fired", "attempt", attempt, "urgency", resp.Urgency, "point_id", resp.WhisperPointID)
 			_ = l.sess.AppendWhisper(session.WhisperEntry{
 				Timestamp: time.Now(),
 				Text:      spoken,
 				Urgency:   resp.Urgency,
 			})
-			wm.record(whisperText)
+			wm.record(resp.WhisperPointID, whisperText)
 		}
 		st.Activity = ActivityListening
 	}
 
 	return &newState, phaseStart
+}
+
+// computeCurrentPhase returns the phase ID of the last covered point,
+// falling back to the previous phase if no points are covered yet.
+func computeCurrentPhase(s *script.Script, covered []string, fallback int) int {
+	for i := len(covered) - 1; i >= 0; i-- {
+		if p := s.PhaseForPoint(covered[i]); p != nil {
+			return p.ID
+		}
+	}
+	return fallback
+}
+
+func containsStr(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func currentStatus(st Status, tr *trigger, wm *whisperManager) Status {
